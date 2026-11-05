@@ -1,7 +1,8 @@
 {
   "name": "PetFriend POS",
   "short_name": "PetFriend POS",
-  "start_url": "./index.html",
+  "id": "./",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
