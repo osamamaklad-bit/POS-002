@@ -35,7 +35,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #f2b705}
   <div id="msg"></div>
   <div id="res"></div>
   <div id="cart"></div>
-  <div class="r"><input id="disc" type="number" min="0" max="100" placeholder="Discount %"><input id="cash" type="number" min="0" placeholder="Cash received"></div>
+  <div class="r"><input id="disc" type="number" min="0" placeholder="Discount"><select id="dtype" style="padding:11px;border:1px solid var(--line);border-radius:6px"><option value="pct">%</option><option value="amount">EGP</option></select><input id="cash" type="number" min="0" placeholder="Cash received"></div>
   <div id="total">0.00</div>
   <div id="chg"></div>
   <div class="r"><button id="pay" style="flex:1">Complete cash sale</button><button class="g" id="clr">Clear</button></div>
@@ -59,11 +59,11 @@ async function api(action, data) {
 }
 const say = t => $('msg').textContent = t || '';
 const sub = () => cart.reduce((s, i) => s + i.price * i.qty, 0);
-const total = () => sub() * (1 - (Number($('disc').value) || 0) / 100);
+const total = () => { const d = Number($('disc').value) || 0, s = sub(); return Math.max(0, $('dtype').value === 'amount' ? s - d : s * (1 - d / 100)); };
 
 function add(v) {
   const c = cart.find(i => i.id === v.id);
-  c ? c.qty++ : cart.push({ id: v.id, name: v.displayName, price: Number(v.price), qty: 1 });
+  c ? c.qty++ : cart.push({ id: v.id, name: v.displayName, price: Number(v.price), list: Number(v.price), qty: 1 });
   $('res').innerHTML = ''; $('q').value = ''; $('q').focus(); render();
 }
 
@@ -81,7 +81,12 @@ async function find(text) {
 }
 
 function render() {
-  $('cart').innerHTML = cart.map((i, k) => `<div class="i"><span><b>${esc(i.name)}</b><small>${i.price.toFixed(2)} each</small></span><span class="q"><button class="g" data-k="${k}" data-d="-1">−</button>${i.qty}<button class="g" data-k="${k}" data-d="1">+</button></span></div>`).join('');
+  $('cart').innerHTML = cart.map((i, k) => `<div class="i"><span><b>${esc(i.name)}</b><small>Price <input class="p" type="number" step="0.01" min="0" value="${i.price}" data-k="${k}" style="width:90px;padding:4px"></small></span><span class="q"><button class="g" data-k="${k}" data-d="-1">−</button>${i.qty}<button class="g" data-k="${k}" data-d="1">+</button></span></div>`).join('');
+  $('cart').querySelectorAll('input.p').forEach(x => x.onchange = () => {
+    const i = cart[x.dataset.k]; let p = Number(x.value);
+    if (!(p >= 0) || p > i.list) { say('Price must be between 0 and ' + i.list); p = i.list; }
+    i.price = p; render();
+  });
   $('cart').querySelectorAll('button').forEach(b => b.onclick = () => {
     const i = cart[b.dataset.k]; i.qty += Number(b.dataset.d);
     if (i.qty <= 0) cart.splice(b.dataset.k, 1); render();
@@ -92,17 +97,20 @@ function render() {
 }
 
 $('q').addEventListener('keydown', e => { if (e.key === 'Enter') find(); }); // USB/Bluetooth scanners send Enter
-$('disc').oninput = $('cash').oninput = render;
+$('disc').oninput = $('cash').oninput = $('dtype').onchange = render;
 $('clr').onclick = () => { cart = []; $('cash').value = $('disc').value = ''; render(); };
 
 $('pay').onclick = async () => {
   if (!cart.length) return say('Cart is empty');
+  const dv = Number($('disc').value) || 0;
+  if ($('dtype').value === 'pct' && dv > 100) return say('Discount cannot exceed 100%');
+  if ($('dtype').value === 'amount' && dv > sub()) return say('Discount is more than the cart total');
   const t = total(), cash = Number($('cash').value) || t;
   if (cash < t) return say('Cash received is less than the total');
   $('pay').disabled = true; say('Saving sale…');
   try {
-    const items = cart.map(i => ({ id: i.id, qty: i.qty })), disc = Number($('disc').value) || 0;
-    const o = await api('sale', { items, discountPct: disc });
+    const items = cart.map(i => ({ id: i.id, qty: i.qty, price: i.price })), disc = Number($('disc').value) || 0;
+    const o = await api('sale', { items, discountType: $('dtype').value, discountValue: disc });
     receipt(o, cash); say('Sale ' + o.name + ' saved');
     cart = []; $('cash').value = $('disc').value = ''; render(); window.print();
   } catch (e) { say(e.message); }
